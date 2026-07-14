@@ -262,6 +262,15 @@ b{font-weight:600;}
         <div class="step">
           <div class="num">5</div>
           <div class="step-card">
+            <div class="head"><div class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.5 12l1.8 1.8L15 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3>Approve the proposed fix</h3></div>
+            <p>The PM card doesn't just describe the job — it proposes running it. Clicking <b>Approve</b> executes that one pre-vetted action immediately, despite the session being read-only.</p>
+            <span class="tag mono">POST /api/remediation/:id/approve → executed</span>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="num">6</div>
+          <div class="step-card">
             <div class="head"><div class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16v11H9l-4 4V5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></div><h3>Ask a cross-module follow-up</h3></div>
             <p>"Any assets missing agent coverage?" routes to Cloud Agent inventory and flags two blind spots — visible only because CA is in scope.</p>
             <span class="tag mono">POST /api/chat → module CA</span>
@@ -269,26 +278,26 @@ b{font-weight:600;}
         </div>
 
         <div class="step">
-          <div class="num">6</div>
+          <div class="num">7</div>
           <div class="step-card">
             <div class="head"><div class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></div><h3>Try a write command anyway</h3></div>
-            <p>Sending a patch-apply command through the generic passthrough is rejected outright — <span class="mono">DENY_WRITE</span> applies to every profile, including this one.</p>
+            <p>Sending an arbitrary patch-apply command through the generic passthrough is rejected outright — <span class="mono">DENY_WRITE</span> blocks it unconditionally. Only the one named, evidence-backed proposal from step 5 was ever allowed to run.</p>
             <span class="tag mono deny">POST /api/qualys-cli → 403 blocked</span>
           </div>
         </div>
 
         <div class="step">
-          <div class="num">7</div>
+          <div class="num">8</div>
           <div class="step-card">
             <div class="head"><div class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h9l4 4v12H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 11h6M9 14.5h6M9 18h3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div><h3>Open the audit log</h3></div>
-            <p>Every call this session made — ranking, evidence, chat, the blocked write — is listed with timestamp, tool, module, and result.</p>
+            <p>Every call this session made — ranking, evidence, chat, the approve → execute pair, the blocked write — is listed with timestamp, tool, module, and result.</p>
             <span class="tag mono">GET /api/audit</span>
           </div>
         </div>
 
       </div>
 
-      <div class="outcome">Leaves with a cross-module remediation picture — and a defensible audit trail of how it was built.</div>
+      <div class="outcome">Leaves with a cross-module remediation picture, one fix actually shipped under approval — and a defensible audit trail of how all of it was built.</div>
     </div>
 
     <!-- ================= MANAGER LANE ================= -->
@@ -326,7 +335,7 @@ b{font-weight:600;}
           <div class="num">3</div>
           <div class="step-card">
             <div class="head"><div class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.9"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.9"/></svg></div><h3>Expand the same asset</h3></div>
-            <p>Only VM and WAS cards render. A banner takes the place of the rest: "3 modules hidden under the manager allowlist (PC, CA, PM)."</p>
+            <p>Only VM and WAS cards render. A banner takes the place of the rest: "3 modules hidden under the manager allowlist (PC, CA, PM)." The Approve/Reject action from the Analyst lane never renders here — it lives on the PM card, and PM is one of the hidden three.</p>
             <span class="tag mono">GET /api/assets/checkout-web/evidence · 2/5 visible</span>
           </div>
         </div>

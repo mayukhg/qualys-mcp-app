@@ -279,6 +279,23 @@ tr.open + .drawer-row .drawer-inner{max-height:520px;}
 }
 .ev-restricted svg{width:13px; height:13px; flex:none;}
 
+.proposal{margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);}
+.proposal-row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
+.proposal-action{font-size:11.5px; font-weight:600; color:var(--text);}
+.proposal-status{font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:3px 8px; border-radius:999px; flex:none;}
+.proposal-status.pending{color:var(--text-dim); background:var(--surface-3);}
+.proposal-status.executed{color:var(--ok); background:var(--ok-soft);}
+.proposal-status.rejected{color:var(--text-faint); background:var(--surface-3);}
+.proposal-actions{display:flex; gap:7px;}
+.btn-approve, .btn-reject{
+  font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:7px; border:1px solid transparent;
+  font-family:inherit; cursor:pointer; transition:opacity .15s ease;
+}
+.btn-approve{background:var(--ok); color:#fff;}
+.btn-reject{background:transparent; color:var(--text-dim); border-color:var(--border);}
+.btn-approve:hover, .btn-reject:hover{opacity:.85;}
+.btn-approve:disabled, .btn-reject:disabled{opacity:.5; cursor:default;}
+
 /* ---------- Audit drawer ---------- */
 .scrim{
   position:fixed; inset:0; background:rgba(10,13,19,.35); opacity:0; pointer-events:none;
@@ -446,7 +463,7 @@ const ASSETS = [
       {mod:'WAS', sev:'high', color:'var(--high)', html:'Reflected SQL injection on <b>/checkout/apply-promo</b>, severity 5, first seen 6 days ago.'},
       {mod:'PC', sev:'medium', color:'var(--medium)', html:'Fails <b>CIS 5.2.9</b> — SSH root login is not disabled on this host.'},
       {mod:'CA', sev:null, color:'var(--ok)', html:'Agent healthy · last check-in <b>2h ago</b>.'},
-      {mod:'PM', sev:null, color:'var(--low)', html:'Job <b>Q3-log4j-remediation</b> targets this CVE but has not run yet — recommend expediting.'}
+      {mod:'PM', sev:null, color:'var(--low)', html:'Job <b>Q3-log4j-remediation</b> targets this CVE but has not run yet — recommend expediting.', proposal:{id:'prop-checkout-web-log4j', action:'Run job Q3-log4j-remediation now', status:'pending'}}
     ]
   },
   {
@@ -467,7 +484,7 @@ const ASSETS = [
       {mod:'CS', sev:'critical', color:'var(--critical)', html:'Image <b>node:14-alpine</b> contains <b>CVE-2024-3094</b> (xz backdoor).'},
       {mod:'VM', sev:'high', color:'var(--high)', html:'Host kernel exposed to <b>CVE-2023-4863</b> (libwebp heap overflow).'},
       {mod:'CA', sev:null, color:'var(--ok)', html:'Agent healthy · reporting normally.'},
-      {mod:'PM', sev:null, color:'var(--low)', html:'Patch <b>kernel-5.15.0-105</b> available, no job scheduled — recommend creating one.'}
+      {mod:'PM', sev:null, color:'var(--low)', html:'Patch <b>kernel-5.15.0-105</b> available, no job scheduled — recommend creating one.', proposal:{id:'prop-k8s-kernel-patch', action:'Schedule job for kernel-5.15.0-105', status:'pending'}}
     ]
   },
   {
@@ -506,6 +523,29 @@ function renderModules(){
 function iconCheck(){return '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';}
 function iconLock(){return '<svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>';}
 
+function renderProposal(p){
+  const canAct = p.status === 'pending';
+  return `<div class="proposal">
+    <div class="proposal-row">
+      <span class="proposal-action">${p.action}</span>
+      <span class="proposal-status ${p.status}">${p.status}</span>
+    </div>
+    ${canAct ? `<div class="proposal-actions">
+      <button type="button" class="btn-approve" data-approve="${p.id}">Approve</button>
+      <button type="button" class="btn-reject" data-reject="${p.id}">Reject</button>
+    </div>` : ''}
+  </div>`;
+}
+
+function findProposal(id){
+  for(const a of ASSETS){
+    for(const e of a.evidence){
+      if(e.proposal && e.proposal.id === id) return {asset:a, proposal:e.proposal};
+    }
+  }
+  return null;
+}
+
 function renderAssets(){
   const allow = PROFILE_ALLOW[state.profile];
   const body = document.getElementById('assetBody');
@@ -526,6 +566,7 @@ function renderAssets(){
           ${e.sev?`<span class="ev-sev" style="color:${e.color}">${e.sev}</span>`:''}
         </div>
         <p>${e.html}</p>
+        ${e.proposal ? renderProposal(e.proposal) : ''}
       </div>`).join('');
     const restricted = hiddenCount>0 ? `<div class="ev-restricted">${iconLock()}${hiddenCount} module${hiddenCount>1?'s':''} hidden under the ${state.profile} allowlist (${a.evidence.filter(e=>!allow.includes(e.mod)).map(e=>e.mod).join(', ')})</div>` : '';
 
@@ -634,6 +675,27 @@ document.querySelectorAll('[data-profile-btn]').forEach(btn=>{
     renderAssets();
     addAudit('session.set_profile', state.profile.toUpperCase());
   });
+});
+
+document.getElementById('assetBody').addEventListener('click', (e)=>{
+  const approveBtn = e.target.closest('[data-approve]');
+  const rejectBtn = e.target.closest('[data-reject]');
+  if(!approveBtn && !rejectBtn) return;
+  e.stopPropagation();
+  const id = (approveBtn || rejectBtn).getAttribute(approveBtn ? 'data-approve' : 'data-reject');
+  const found = findProposal(id);
+  if(!found) return;
+  const decision = approveBtn ? 'approve' : 'reject';
+  found.proposal.status = decision === 'approve' ? 'executed' : 'rejected';
+  renderAssets();
+  if(decision === 'approve'){
+    addAudit('remediation.approve', 'PM');
+    addAudit('remediation.execute', 'PM');
+    addMsg(`Approved and ran: ${found.proposal.action}`, 'bot', 'remediation.execute');
+  } else {
+    addAudit('remediation.reject', 'PM');
+    addMsg(`Rejected: ${found.proposal.action}`, 'bot', 'remediation.reject');
+  }
 });
 
 const drawer = document.getElementById('auditDrawer');

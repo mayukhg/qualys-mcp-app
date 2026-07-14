@@ -145,7 +145,7 @@ Unlike single-module use cases (e.g. "ask about vulnerabilities"), this workflow
 
 ## Running the live demo
 
-[`risk-copilot-mockup.html`](risk-copilot-mockup.html) is a click-through, data-free prototype. [`app/`](app) is a working full-stack implementation of the same Weekly Risk Copilot use case: a real Node.js backend that mirrors `qualys-cli-mcp`'s tool/module contract (module allowlisting, `QUALYS_MCP_DENY_WRITE`, append-only JSONL audit log), plus a frontend that talks to it over HTTP instead of using hardcoded data.
+[`risk-copilot-mockup.html`](risk-copilot-mockup.html) (and its standalone export, [`risk-copilot-share.html`](risk-copilot-share.html)) is a click-through, data-free prototype — including the approval-gated remediation action described below, simulated entirely client-side. [`app/`](app) is a working full-stack implementation of the same Weekly Risk Copilot use case: a real Node.js backend that mirrors `qualys-cli-mcp`'s tool/module contract (module allowlisting, `QUALYS_MCP_DENY_WRITE`, append-only JSONL audit log), plus a frontend that talks to it over HTTP instead of using hardcoded data.
 
 **No Qualys credentials or `qualys-cli-mcp` install are required** — this environment has neither, so the backend serves realistic mock data from [`app/data/assets.json`](app/data/assets.json) behind the exact same route/governance shape the real tool would need. Swapping in live data means replacing `loadAssets()` and `runQualysCli()` in [`app/server/server.js`](app/server/server.js) with real `qualys-cli` calls — the API surface, allowlisting, and audit logging don't change.
 
