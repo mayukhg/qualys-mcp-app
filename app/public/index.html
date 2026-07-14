@@ -180,6 +180,23 @@ tr.open + .drawer-row .drawer-inner{max-height:520px;}
 .ev-card p b{color:var(--text); font-weight:600;}
 .ev-restricted{display:flex; align-items:center; gap:8px; padding:11px 12px; border-radius:var(--radius-m); background:var(--surface-2); border:1px dashed var(--border); color:var(--text-faint); font-size:11.5px;}
 .ev-restricted svg{width:13px; height:13px; flex:none;}
+
+.proposal{margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);}
+.proposal-row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
+.proposal-action{font-size:11.5px; font-weight:600; color:var(--text);}
+.proposal-status{font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:3px 8px; border-radius:999px; flex:none;}
+.proposal-status.pending{color:var(--text-dim); background:var(--surface-3);}
+.proposal-status.approved, .proposal-status.executed{color:var(--ok); background:var(--ok-soft);}
+.proposal-status.rejected{color:var(--text-faint); background:var(--surface-3);}
+.proposal-actions{display:flex; gap:7px;}
+.btn-approve, .btn-reject{
+  font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:7px; border:1px solid transparent;
+  font-family:inherit; cursor:pointer; transition:opacity .15s ease;
+}
+.btn-approve{background:var(--ok); color:#fff;}
+.btn-reject{background:transparent; color:var(--text-dim); border-color:var(--border);}
+.btn-approve:hover, .btn-reject:hover{opacity:.85;}
+.btn-approve:disabled, .btn-reject:disabled{opacity:.5; cursor:default;}
 .ev-loading{padding:16px 18px; font-size:12px; color:var(--text-faint);}
 
 .scrim{position:fixed; inset:0; background:rgba(10,13,19,.35); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:30;}
@@ -325,7 +342,7 @@ function iconLock(){return '<svg viewBox="0 0 24 24" fill="none"><rect x="5" y="
 
 async function api(path, opts){
   const res = await fetch(path, opts);
-  if(!res.ok && res.status !== 403) throw new Error(`${path} -> ${res.status}`);
+  if(!res.ok && ![403, 409].includes(res.status)) throw new Error(`${path} -> ${res.status}`);
   return { status: res.status, body: await res.json() };
 }
 
@@ -333,6 +350,7 @@ async function loadSession(){
   const { body } = await api('/api/session');
   state.profile = body.profile;
   state.allowedModules = body.allowedModules;
+  state.allowApprovedRemediation = body.allowApprovedRemediation;
   document.querySelectorAll('[data-profile-btn]').forEach(b=>{
     b.classList.toggle('active', b.getAttribute('data-profile-btn') === state.profile);
   });
@@ -388,6 +406,20 @@ async function toggleRow(id){
   refreshAudit();
 }
 
+function renderProposal(p){
+  const canAct = p.status === 'pending' && state.allowApprovedRemediation;
+  return `<div class="proposal" data-proposal-id="${p.id}">
+    <div class="proposal-row">
+      <span class="proposal-action">${p.action}</span>
+      <span class="proposal-status ${p.status}">${p.status}</span>
+    </div>
+    ${canAct ? `<div class="proposal-actions">
+      <button type="button" class="btn-approve" data-approve="${p.id}">Approve</button>
+      <button type="button" class="btn-reject" data-reject="${p.id}">Reject</button>
+    </div>` : ''}
+  </div>`;
+}
+
 async function loadEvidence(id){
   const { body } = await api(`/api/assets/${id}/evidence`);
   const el = document.getElementById(`drawer-${id}`);
@@ -397,6 +429,7 @@ async function loadEvidence(id){
     return `<div class="ev-card" style="--card-color:${color}">
       <div class="ev-head"><span class="ev-mod">${e.mod}</span>${e.sev?`<span class="ev-sev" style="color:${color}">${e.sev}</span>`:''}</div>
       <p>${e.text}</p>
+      ${e.proposal ? renderProposal(e.proposal) : ''}
     </div>`;
   }).join('');
   const restricted = body.restrictedModules.length
@@ -404,6 +437,28 @@ async function loadEvidence(id){
     : '';
   el.innerHTML = `<div class="evidence">${cards}${restricted}</div>`;
 }
+
+async function actOnProposal(id, decision, btn){
+  const group = btn.closest('.proposal-actions');
+  group.querySelectorAll('button').forEach(b => b.disabled = true);
+  const { status, body } = await api(`/api/remediation/${id}/${decision}`, { method:'POST' });
+  if(status !== 200){
+    addMsg(body.error || 'That action could not be completed.', 'bot');
+  } else {
+    addMsg(decision === 'approve'
+      ? `Approved and ran: ${body.proposal.action}`
+      : `Rejected: ${body.proposal.action}`, 'bot', `remediation.${decision}`);
+  }
+  if(state.openRow) await loadEvidence(state.openRow);
+  refreshAudit();
+}
+
+document.getElementById('assetBody').addEventListener('click', (e)=>{
+  const approveBtn = e.target.closest('[data-approve]');
+  const rejectBtn = e.target.closest('[data-reject]');
+  if(approveBtn){ e.stopPropagation(); actOnProposal(approveBtn.getAttribute('data-approve'), 'approve', approveBtn); }
+  else if(rejectBtn){ e.stopPropagation(); actOnProposal(rejectBtn.getAttribute('data-reject'), 'reject', rejectBtn); }
+});
 
 function addMsg(text, who, cite){
   const log = document.getElementById('chatLog');

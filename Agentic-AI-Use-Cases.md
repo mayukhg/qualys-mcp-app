@@ -11,7 +11,7 @@ The Risk Copilot app in this repo is conversational: a human asks, the copilot a
 
 ## Human-in-the-loop remediation
 
-- **Approval-gated write agent** — the demo hard-blocks every write via `DENY_WRITE`; the natural next step is an agent that *proposes* a specific write (e.g., "run PM job Q3-log4j-remediation") and only executes after a human clicks approve in the UI — the audit log already gives a clean approve/deny trail for free.
+- **Approval-gated write agent — ✅ implemented.** The demo hard-blocks every write via `DENY_WRITE`; this agent *proposes* a specific, evidence-backed write (e.g., "run PM job Q3-log4j-remediation") and only executes after a human clicks Approve in the Workbench. It's a narrow, named exception to `DENY_WRITE`, not a bypass of it — the generic `qualys_cli()` passthrough stays fully blocked, approval still goes through the same module allowlist (a Manager-profile session can't approve anything, since the card never renders), and every propose/approve/execute/reject/denial is its own audit log line. See [`app/server/server.js`](app/server/server.js) (`proposals` map, `/api/remediation/:id/approve|reject`) and [`README.md`](README.md#approval-gated-remediation-agent) for the full writeup. This was picked over the alternatives above because it directly completes the app's own narrative — the evidence already said "a fix exists but hasn't run"; this closes that loop instead of adding another read-only view.
 - **Ticket-drafting agent** — on a new critical CVE, cross-references VM detections + CSAM ranking + CA coverage to scope blast radius, then drafts a Jira/ServiceNow ticket with the evidence bundle attached, instead of an analyst assembling it by hand.
 
 ## Persona-aware push agents

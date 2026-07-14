@@ -26,6 +26,11 @@ const QUALYS_MCP_AUDIT_LOG = process.env.QUALYS_MCP_AUDIT_LOG
   || path.join(ROOT, 'logs', 'mcp-audit.jsonl');
 const QUALYS_MCP_MAX_RESPONSE = parseInt(process.env.QUALYS_MCP_MAX_RESPONSE || '800000', 10);
 const SIMULATED_LATENCY_MS = parseInt(process.env.QUALYS_MCP_DEMO_LATENCY_MS || '220', 10);
+// A narrow, pre-vetted exception to QUALYS_MCP_DENY_WRITE: specific, evidence-backed remediation
+// actions (see `proposals` below) can still run if a human approves them, even in a read-only
+// session. This does not open up arbitrary writes — the generic passthrough stays blocked by
+// QUALYS_MCP_DENY_WRITE regardless. Set to '0' to disable this lane entirely (fully locked down).
+const QUALYS_MCP_ALLOW_APPROVED_REMEDIATION = process.env.QUALYS_MCP_ALLOW_APPROVED_REMEDIATION !== '0';
 
 const PROFILE_ALLOW = {
   analyst: ['CSAM', 'VM', 'PC', 'WAS', 'TC', 'CS', 'PM', 'CA'],
@@ -72,6 +77,32 @@ function allowedModules() {
 
 function moduleAllowed(mod) {
   return allowedModules().includes(mod);
+}
+
+// ---- approval-gated remediation proposals ------------------------------------
+// Seeded once from the `proposal` field on PM evidence in assets.json, then tracked
+// in memory for the life of the process (a real implementation would persist this).
+const proposals = new Map();
+
+function seedProposals() {
+  loadAssets().forEach((asset) => {
+    asset.evidence.forEach((e) => {
+      if (e.proposal && !proposals.has(e.proposal.id)) {
+        proposals.set(e.proposal.id, {
+          id: e.proposal.id,
+          assetId: asset.id,
+          assetName: asset.name,
+          action: e.proposal.action,
+          status: 'pending'
+        });
+      }
+    });
+  });
+}
+seedProposals();
+
+function proposalView(p) {
+  return { id: p.id, action: p.action, status: p.status };
 }
 
 // ---- simple keyword router standing in for LLM tool-selection ---------------
@@ -215,7 +246,8 @@ async function handleApi(req, res, url) {
       profile: session.profile,
       mode: QUALYS_MCP_DENY_WRITE ? 'read-only' : 'read-write',
       allowedModules: allowedModules(),
-      allModules: ['CSAM', 'VM', 'PC', 'WAS', 'TC', 'CS', 'PM', 'CA']
+      allModules: ['CSAM', 'VM', 'PC', 'WAS', 'TC', 'CS', 'PM', 'CA'],
+      allowApprovedRemediation: QUALYS_MCP_ALLOW_APPROVED_REMEDIATION
     });
   }
 
@@ -247,11 +279,46 @@ async function handleApi(req, res, url) {
     const asset = loadAssets().find((a) => a.id === evidenceMatch[1]);
     if (!asset) return sendJson(res, 404, { error: 'unknown asset' });
     const allow = allowedModules();
-    const visible = asset.evidence.filter((e) => allow.includes(e.mod));
+    const visible = asset.evidence.filter((e) => allow.includes(e.mod)).map((e) => {
+      if (!e.proposal) return e;
+      const live = proposals.get(e.proposal.id);
+      return { ...e, proposal: live ? proposalView(live) : e.proposal };
+    });
     const restrictedModules = [...new Set(asset.evidence.filter((e) => !allow.includes(e.mod)).map((e) => e.mod))];
     visible.forEach((e) => audit({ tool: e.tool, module: e.mod, result: 'ok', detail: asset.name }));
     if (restrictedModules.length) audit({ tool: 'evidence.restricted', module: restrictedModules.join(','), result: 'denied', detail: asset.name });
     return sendJson(res, 200, { asset: asset.name, evidence: visible, restrictedModules });
+  }
+
+  const remediationMatch = url.pathname.match(/^\/api\/remediation\/([\w-]+)\/(approve|reject)$/);
+  if (remediationMatch && req.method === 'POST') {
+    const [, propId, decision] = remediationMatch;
+    const prop = proposals.get(propId);
+    if (!prop) return sendJson(res, 404, { error: 'unknown proposal' });
+
+    if (!QUALYS_MCP_ALLOW_APPROVED_REMEDIATION) {
+      audit({ tool: `remediation.${decision}`, module: 'PM', result: 'denied', detail: `${prop.id}: remediation lane disabled` });
+      return sendJson(res, 403, { error: 'Approved remediation is disabled for this session (QUALYS_MCP_ALLOW_APPROVED_REMEDIATION=0).' });
+    }
+    if (!moduleAllowed('PM')) {
+      audit({ tool: `remediation.${decision}`, module: 'PM', result: 'denied', detail: `${prop.id}: PM outside ${session.profile} allowlist` });
+      return sendJson(res, 403, { error: 'PM is not in the current module allowlist.' });
+    }
+    if (prop.status !== 'pending') {
+      return sendJson(res, 409, { error: `Proposal is already ${prop.status}.`, proposal: proposalView(prop) });
+    }
+
+    if (decision === 'reject') {
+      prop.status = 'rejected';
+      audit({ tool: 'remediation.reject', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
+      return sendJson(res, 200, { proposal: proposalView(prop) });
+    }
+
+    // approve -> a human signed off, so this one pre-vetted action runs despite DENY_WRITE
+    audit({ tool: 'remediation.approve', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
+    prop.status = 'executed';
+    audit({ tool: 'remediation.execute', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
+    return sendJson(res, 200, { proposal: proposalView(prop) });
   }
 
   if (url.pathname === '/api/chat' && req.method === 'POST') {

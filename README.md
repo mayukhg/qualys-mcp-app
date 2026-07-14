@@ -174,6 +174,19 @@ Both write a PID file to `app/.server.pid` so re-running `start` is a no-op if i
 | Audit logging (`QUALYS_MCP_AUDIT_LOG`) | Real — append-only JSONL at `app/logs/mcp-audit.jsonl`, one line per tool call, allowed or denied |
 | Asset/vulnerability/compliance/etc. data | Mock — fixed dataset in `app/data/assets.json`, not a live Qualys tenant |
 | Chat routing | Simplified keyword matcher standing in for LLM tool-selection (`app/server/server.js#routeChat`) |
+| Approval-gated remediation | Real state machine (pending → executed/rejected) and governance checks; the "execute" step is a mock, not a real `qualys-cli` write |
+
+### Approval-gated remediation agent
+
+The evidence drill-down isn't purely read-only: PM findings that have a concrete fix (`app/data/assets.json`'s `proposal` field) render an **Approve / Reject** action in the Workbench. This is a deliberate, narrow exception to `QUALYS_MCP_DENY_WRITE` — not a bypass of it:
+
+- The generic passthrough (`POST /api/qualys-cli`) still rejects every write-shaped command, unconditionally.
+- Only these specific, evidence-backed, pre-vetted actions can run, and only after a human clicks Approve.
+- Approval still goes through the same module-allowlist check as everything else — PM must be in scope for the current profile, so a Manager-profile session can't approve anything (the card doesn't even render, since PM evidence is already hidden for that profile).
+- Every step — propose, approve, execute, reject, or a denied attempt — is a separate audit log line.
+- The whole lane can be shut off with `QUALYS_MCP_ALLOW_APPROVED_REMEDIATION=0` for a fully locked-down demo.
+
+See [`Agentic-AI-Use-Cases.md`](Agentic-AI-Use-Cases.md) for the reasoning behind why this was the first agentic capability added on top of the conversational copilot.
 
 ### API surface
 
@@ -184,6 +197,7 @@ Both write a PID file to `app/.server.pid` so re-running `start` is a no-op if i
 | `GET /api/assets/:id/evidence` | VM / PC / WAS / TC / CS / PM / CA tools, filtered by allowlist |
 | `POST /api/chat` | copilot conversation → routed tool call |
 | `POST /api/qualys-cli` / `GET /api/qualys-cli/help` | generic `qualys_cli()` / `qualys_cli_help()` |
+| `POST /api/remediation/:id/approve` / `POST /api/remediation/:id/reject` | approval-gated remediation lane |
 | `GET /api/audit` | tail of the audit log |
 
 ## Sources

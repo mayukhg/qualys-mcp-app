@@ -12,7 +12,7 @@
       { "mod": "WAS", "sev": "high", "tool": "was.findings", "text": "Reflected SQL injection on <b>/checkout/apply-promo</b>, severity 5, first seen 6 days ago." },
       { "mod": "PC", "sev": "medium", "tool": "pc.posture", "text": "Fails <b>CIS 5.2.9</b> — SSH root login is not disabled on this host." },
       { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "Agent healthy · last check-in <b>2h ago</b>." },
-      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Job <b>Q3-log4j-remediation</b> targets this CVE but has not run yet — recommend expediting." }
+      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Job <b>Q3-log4j-remediation</b> targets this CVE but has not run yet — recommend expediting.", "proposal": { "id": "prop-checkout-web-log4j", "action": "Run job Q3-log4j-remediation now" } }
     ]
   },
   {
@@ -41,7 +41,7 @@
       { "mod": "CS", "sev": "critical", "tool": "cs.image_scan", "text": "Image <b>node:14-alpine</b> contains <b>CVE-2024-3094</b> (xz backdoor)." },
       { "mod": "VM", "sev": "high", "tool": "vm.detections", "text": "Host kernel exposed to <b>CVE-2023-4863</b> (libwebp heap overflow)." },
       { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "Agent healthy · reporting normally." },
-      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Patch <b>kernel-5.15.0-105</b> available, no job scheduled — recommend creating one." }
+      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Patch <b>kernel-5.15.0-105</b> available, no job scheduled — recommend creating one.", "proposal": { "id": "prop-k8s-kernel-patch", "action": "Schedule job for kernel-5.15.0-105" } }
     ]
   },
   {
