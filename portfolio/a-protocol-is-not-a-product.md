@@ -87,19 +87,64 @@ Two environment variables — `ALLOWED_MODULES` and `DENY_WRITE` — and the sam
 
 **Manager profile:** CSAM, VM and WAS only, read-only. This is the engineering manager who needs to know how risky their estate is and will never hold a Qualys seat.
 
-And critically — when a module is out of scope, the interface does not silently drop it. It says: *2 modules hidden under the manager allowlist (PC, CA).* Restriction is a designed state, not an error state. The guardrail is visible in the product surface, not buried in a config file nobody opens.
+And critically — when a module is out of scope, the interface does not silently drop it. It says: *3 modules hidden under the manager allowlist (PC, CA, PM).* Restriction is a designed state, not an error state. The guardrail is visible in the product surface, not buried in a config file nobody opens.
 
 Segmentation, in this design, costs a config change rather than a roadmap. That is not an accident of the platform. That is what happens when you treat the governance layer as the packaging.
 
 ---
 
+## I tried to make it do the wrong thing
+
+Claims about guardrails are cheap. So I sent a write straight through the generic passthrough, on the Analyst profile — the one with everything unlocked.
+
+```
+$ curl -X POST localhost:5050/api/qualys-cli \
+    -d '{"command":"pm patch apply --job Q3-log4j-remediation"}'
+
+HTTP/1.1 403 Forbidden
+{
+  "output": "blocked: 'pm patch apply --job Q3-log4j-remediation'
+    looks like a write operation and QUALYS_MCP_DENY_WRITE=1 is
+    enforced for this session."
+}
+```
+
+Read that carefully, because the important word is *who*.
+
+**The model did not refuse. The server refused.** No prompt was consulted. No system message was appealed to. A regex on the command matched a write pattern, `DENY_WRITE` was set, and the request died at the boundary — on the Analyst profile, which has every module unlocked. There is no privileged path around it.
+
+That is the difference between a control and a hope. A model that has been *asked* not to write is a model that will eventually write.
+
+---
+
+## The audit log proves the negative
+
+One line later, the same denied call shows up in the log:
+
+```json
+{"ts":"2026-07-14T07:17:18Z", "tool":"qualys_cli", "module":"GENERIC",
+ "mode":"read-only", "result":"denied"}
+```
+
+It logged the attempt. Not just the success — the *attempt*.
+
+And that turns the audit log into something more useful than a receipt. Run the Manager session and its trail is visibly shorter than the Analyst's: `CSAM`, `VM`, `WAS`, and nothing else. Which means you can hand an auditor the file and prove that the session **never touched** PC, TC, CS, PM or CA. Not "we configured it not to." Not "the UI didn't show it." It never happened, and here is the file.
+
+Most audit logs record what happened. This one lets you prove what didn't.
+
+That distinction is the whole difference between compliance theatre and an actual control — and it is the single feature I would lead with if I were selling this to a CISO.
+
+---
+
 ## What I will not claim
 
-The prototype is a clickable interface built against a real spec. It is not a live integration. I have not run it against a production tenant, and I have not measured a single hour saved.
+It runs. It is a Node server that enforces the allowlist, rejects writes, and writes its own audit log — the 403 above is real, and you can reproduce it. What it does **not** have is a live Qualys tenant behind it. The data layer is local.
 
-I could have put a dollar figure on a slide. Plenty of people would have. But the moment you invent a number in a room full of security people, everything else you say becomes a number they have to check.
+So the boundary is narrower than "it's a mockup," and I want to state it precisely rather than modestly. The governance layer is executable. The data is not yet real.
 
-So here is the honest boundary. What would production actually need? A live MCP session behind the surface. Real tenant data across all eight modules. A latency and cost budget, because a cross-module join is a lot of tool calls. And — the one nobody wants to talk about — an evaluation harness for hallucination on risk claims, because a copilot that invents a CVE is worse than no copilot at all.
+What would production actually need? A live MCP session where the local data layer sits today. A latency and cost budget, because a cross-module join is a lot of tool calls. And — the one nobody wants to talk about — an evaluation harness for hallucination on risk claims, because a copilot that invents a CVE is worse than no copilot at all.
+
+I could also have put a dollar figure on a slide. Plenty of people would have. But the moment you invent a number in a room full of security people, everything else you say becomes a number they have to check.
 
 Naming your own gap is not a weakness in a product pitch. It is the thing that makes everything *else* you said believable.
 
@@ -109,7 +154,7 @@ Naming your own gap is not a weakness in a product pitch. It is the thing that m
 
 Strip away the domain and this is what the week actually was:
 
-Read the spec as a product surface, not a tool list. Find the adoption blocker, not the demo hook. Map the capability to business needs, not to features. Write the criteria down, then cut eleven to one. Design the workflow as a join. Prototype the surface until it is defensible. Pressure-test the guardrails as a persona, not a setting. Then say plainly what you have not proved.
+Read the spec as a product surface, not a tool list. Find the adoption blocker, not the demo hook. Map the capability to business needs, not to features. Write the criteria down, then cut eleven to one. Design the workflow as a join. Build the surface until the guardrails actually run. Pressure-test them as a persona, not a setting — then try to break them yourself. Then say plainly what you have not proved.
 
 None of that required budget. None of it required headcount. It required deciding which of eleven doors to open — and then making that one safe enough for someone to actually walk through.
 
