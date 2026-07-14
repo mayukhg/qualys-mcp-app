@@ -92,6 +92,57 @@ VM, PC (Policy Compliance), PM (Patch), ETM (TruRisk), WAS, TC (TotalCloud), CA 
 - **Governed, read-only self-service reporting** — use `QUALYS_MCP_DENY_WRITE=1` plus module allowlisting to give a broader audience (e.g. engineering managers) safe, read-only access to security data via an LLM, with every query captured in the audit log.
 - **Building custom MCP-based security tooling** — use `qualys_cli()` / `qualys_cli_help()` as a foundation for prototyping new automations or bots that need programmatic, auditable access to Qualys without writing a full API client.
 
+## Featured use case: Unified Cross-Domain Risk Prioritization Copilot
+
+This use case is designed to exercise **every module the MCP server exposes** in a single, coherent workflow, rather than treating each tool as an isolated query.
+
+### 1. Business problem
+
+A mid-size enterprise's security team runs Qualys VM, WAS, PC, TotalCloud, Container Security, and Cloud Agent — but each module is queried separately, through separate UI screens or QQL, by different people. The result:
+
+- No single, ranked view of "what should we fix first" across on-prem hosts, cloud resources, containers, and web apps.
+- Analysts spend hours each week manually cross-referencing an asset's vulnerabilities (VM), its compliance posture (PC), whether it's internet-facing (WAS), whether it's cloud-hosted and misconfigured (TotalCloud/CDR), whether it runs vulnerable container images (CS), and whether it even has monitoring coverage (Cloud Agent) — before they can decide if a patch (PM) is available.
+- The CISO wants a weekly, defensible, auditable risk report for leadership, but today's report is a manual spreadsheet exercise with no record of what data was pulled or when.
+- Broader stakeholders (e.g., engineering managers) want self-service answers to "how risky is my team's infrastructure?" without being given write access to Qualys or unrestricted access to every module.
+
+### 2. Mapping the problem to `qualys-cli-mcp` tools
+
+| Business need | MCP tool(s) used | Module |
+|---|---|---|
+| "What are our riskiest assets right now?" | Asset risk-ranking / inventory tool | CSAM |
+| "What vulnerabilities do those assets have, and how severe/exploitable are they?" | Scan / host / detection query tools + KB lookup | VM |
+| "Are any of those assets failing compliance controls that compound the risk?" | Posture assessment tool | PC |
+| "Is this risky asset an internet-facing web app, and what findings exist for it?" | Findings list tool | WAS |
+| "Is this risky asset cloud-hosted, and is it misconfigured or already flagged by CDR?" | Connector + CDR data tools | TotalCloud/CSPM |
+| "Does this asset run containers with known-vulnerable images?" | Image vulnerability scan tool | Container Security (CS) |
+| "Is there a scheduled or available patch that fixes the top CVEs we found?" | Job / patch listing tools | PM |
+| "Do we even have visibility into this asset, or is it a monitoring blind spot?" | Agent inventory tool | Cloud Agent (CA) |
+| "I need one-off data the curated tools don't cover" | Generic passthrough + command discovery | `qualys_cli()` / `qualys_cli_help()` |
+| "Give engineering managers safe self-service access" | `QUALYS_MCP_DENY_WRITE=1` + `QUALYS_MCP_ALLOWED_MODULES` | Governance layer |
+| "Prove to auditors/leadership what was queried and when" | `QUALYS_MCP_AUDIT_LOG` (JSONL) | Governance layer |
+
+### 3. The use case: "Weekly Risk Copilot"
+
+Every Monday, a SOC analyst (or a scheduled automation) opens Claude Desktop with `qualys-mcp` configured, and runs a single conversational workflow:
+
+1. **Identify what matters.** Ask: *"Show me the top 50 highest-risk assets across the org."* → the copilot calls the **CSAM risk-ranking tool** to pull a prioritized asset list instead of the analyst eyeballing raw inventory.
+2. **Explain the risk.** For each risky asset, the copilot calls the **VM detection/scan tools**, resolving each CVE against the **KB lookup tool** to attach severity, exploitability, and description — turning a bare CVE ID list into a readable risk narrative.
+3. **Check for compounding compliance gaps.** The copilot calls the **PC posture assessment tool** for the same assets, flagging any failing controls (e.g., missing disk encryption, weak auth) that make the vulnerabilities worse.
+4. **Branch by asset type:**
+   - If the asset is a web app → pull **WAS findings** for it.
+   - If the asset is cloud-hosted → pull **TotalCloud connector/CDR data** to check for misconfigurations or active detections.
+   - If the asset runs containers → run a **Container Security image scan lookup** on the images it's built from.
+5. **Check blind spots.** The copilot cross-references the risky-asset list against **Cloud Agent inventory** to flag any assets with no agent installed — these are visibility gaps that make the reported risk an *underestimate*, and get called out separately.
+6. **Recommend the fix.** The copilot queries **Patch Management job/patch listings** to check whether a patch already addresses the top CVEs, and if so, whether a job is scheduled — producing a "fix already in flight" vs. "needs a new patch job" recommendation per asset.
+7. **Fill the gaps.** For anything the curated tools don't cover (e.g., a bespoke QQL export the analyst needs for a specific stakeholder), the copilot falls back to `qualys_cli()`, using `qualys_cli_help()` first to confirm the right command syntax.
+8. **Produce the report.** The copilot synthesizes all of the above into a single ranked remediation list plus an executive summary: top N risks, why they matter (vuln + compliance + exposure), what's already being fixed (PM), and where visibility is missing (CA).
+9. **Governance and audit trail.** The whole session runs with `QUALYS_MCP_DENY_WRITE=1` (this is a reporting workflow, not a remediation-execution one) and every tool call is written to `QUALYS_MCP_AUDIT_LOG`, so the CISO's weekly report is backed by a reproducible, timestamped record of exactly what was queried — satisfying audit/compliance requirements without any manual logging.
+10. **Safe self-service for a wider audience.** The same copilot, reconfigured with `QUALYS_MCP_ALLOWED_MODULES=VM,WAS,CSAM` and `QUALYS_MCP_DENY_WRITE=1`, is handed to engineering managers so they can ask "how risky is my team's stuff?" without exposure to PC, PM, or write operations.
+
+### Why this is a good showcase
+
+Unlike single-module use cases (e.g. "ask about vulnerabilities"), this workflow forces the copilot to **join data across eight modules** (CSAM, VM, PC, WAS, TotalCloud, CS, PM, CA) into one narrative, exercises **both the curated and generic tools**, and demonstrates **every governance control** the server offers (allowlisting, read-only mode, audit logging) — which is exactly the kind of cross-domain correlation that's tedious to do by hand across separate Qualys UI modules, and risky to automate without the guardrails `qualys-cli-mcp` provides.
+
 ## Sources
 
 - [qualys-cli-mcp on PyPI](https://pypi.org/project/qualys-cli-mcp/)
