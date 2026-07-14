@@ -261,7 +261,10 @@ async function handleApi(req, res, url) {
     const result = routeChat(message);
     const allowed = moduleAllowed(result.module) || result.module === 'CSAM';
     const record = audit({ tool: result.tool, module: result.module, result: allowed ? 'ok' : 'denied', detail: message.slice(0, 120) });
-    return sendJson(res, 200, { reply: result.reply, citation: result.tool, focusAsset: result.focusAsset || null, auditTs: record.ts });
+    const reply = allowed
+      ? result.reply
+      : `${result.module} is outside the ${session.profile} allowlist, so I can't pull that. Ask Security for a report, or switch to a profile with access.`;
+    return sendJson(res, 200, { reply, citation: allowed ? result.tool : null, focusAsset: allowed ? (result.focusAsset || null) : null, auditTs: record.ts });
   }
 
   if (url.pathname === '/api/qualys-cli/help' && req.method === 'GET') {
