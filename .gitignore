@@ -1,0 +1,5 @@
+app/logs/*.jsonl
+app/logs/*.out
+app/logs/*.err
+app/.server.pid
+node_modules/

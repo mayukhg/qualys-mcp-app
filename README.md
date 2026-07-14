@@ -143,6 +143,49 @@ Every Monday, a SOC analyst (or a scheduled automation) opens Claude Desktop wit
 
 Unlike single-module use cases (e.g. "ask about vulnerabilities"), this workflow forces the copilot to **join data across eight modules** (CSAM, VM, PC, WAS, TotalCloud, CS, PM, CA) into one narrative, exercises **both the curated and generic tools**, and demonstrates **every governance control** the server offers (allowlisting, read-only mode, audit logging) — which is exactly the kind of cross-domain correlation that's tedious to do by hand across separate Qualys UI modules, and risky to automate without the guardrails `qualys-cli-mcp` provides.
 
+## Running the live demo
+
+[`risk-copilot-mockup.html`](risk-copilot-mockup.html) is a click-through, data-free prototype. [`app/`](app) is a working full-stack implementation of the same Weekly Risk Copilot use case: a real Node.js backend that mirrors `qualys-cli-mcp`'s tool/module contract (module allowlisting, `QUALYS_MCP_DENY_WRITE`, append-only JSONL audit log), plus a frontend that talks to it over HTTP instead of using hardcoded data.
+
+**No Qualys credentials or `qualys-cli-mcp` install are required** — this environment has neither, so the backend serves realistic mock data from [`app/data/assets.json`](app/data/assets.json) behind the exact same route/governance shape the real tool would need. Swapping in live data means replacing `loadAssets()` and `runQualysCli()` in [`app/server/server.js`](app/server/server.js) with real `qualys-cli` calls — the API surface, allowlisting, and audit logging don't change.
+
+### Start / stop
+
+```bash
+# macOS/Linux/git-bash
+./scripts/start.sh      # starts the server, prints the URL
+./scripts/stop.sh       # stops it
+```
+
+```powershell
+# Windows PowerShell
+.\scripts\start.ps1
+.\scripts\stop.ps1
+```
+
+Both write a PID file to `app/.server.pid` so re-running `start` is a no-op if it's already running, and `stop` cleanly tears it down. Override the port with `PORT=5051 ./scripts/start.sh` (bash) or `$env:PORT=5051; .\scripts\start.ps1` (PowerShell). Default: **http://localhost:5050**.
+
+### What's real vs. simulated
+
+| Piece | Status |
+|---|---|
+| Module allowlisting (`QUALYS_MCP_ALLOWED_MODULES` equivalent, per-profile) | Real — enforced server-side, returns 403 on violation |
+| Read-only enforcement (`QUALYS_MCP_DENY_WRITE`) | Real — write-shaped commands sent to the generic passthrough are rejected |
+| Audit logging (`QUALYS_MCP_AUDIT_LOG`) | Real — append-only JSONL at `app/logs/mcp-audit.jsonl`, one line per tool call, allowed or denied |
+| Asset/vulnerability/compliance/etc. data | Mock — fixed dataset in `app/data/assets.json`, not a live Qualys tenant |
+| Chat routing | Simplified keyword matcher standing in for LLM tool-selection (`app/server/server.js#routeChat`) |
+
+### API surface
+
+| Route | Mirrors |
+|---|---|
+| `GET /api/session` / `POST /api/session` | current profile, mode, allowed modules |
+| `GET /api/csam/risk-ranking` | CSAM risk-ranking tool |
+| `GET /api/assets/:id/evidence` | VM / PC / WAS / TC / CS / PM / CA tools, filtered by allowlist |
+| `POST /api/chat` | copilot conversation → routed tool call |
+| `POST /api/qualys-cli` / `GET /api/qualys-cli/help` | generic `qualys_cli()` / `qualys_cli_help()` |
+| `GET /api/audit` | tail of the audit log |
+
 ## Sources
 
 - [qualys-cli-mcp on PyPI](https://pypi.org/project/qualys-cli-mcp/)

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Risk Copilot — Live</title>
+<style>
+@font-face{font-family:'Archivo';font-style:normal;font-weight:600 800;font-display:swap;src:url('fonts/archivo.woff2') format('woff2');}
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/publicsans.woff2') format('woff2');}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/plexmono400.woff2') format('woff2');}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/plexmono500.woff2') format('woff2');}
+
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface-2:#E9EDF3; --surface-3:#DCE2EA;
+  --border:#D6DCE5; --text:#171B22; --text-dim:#4B5568; --text-faint:#7C8798;
+  --accent:#1B8F86; --accent-ink:#0E4B46; --accent-soft:#DDF1EE; --accent-on:#FFFFFF;
+  --critical:#C43A22; --critical-soft:#FBEAE6;
+  --high:#B9781C; --high-soft:#FBF0DE;
+  --medium:#96801A; --medium-soft:#F8F3D8;
+  --low:#3E6E96; --low-soft:#E6EEF4;
+  --ok:#2F8F5B; --ok-soft:#E3F4EA;
+  --shadow:0 1px 2px rgba(23,27,34,.04), 0 8px 24px -12px rgba(23,27,34,.18);
+  --radius-s:6px; --radius-m:10px; --radius-l:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0A0D13; --surface:#11151D; --surface-2:#171D27; --surface-3:#1F2733;
+    --border:#262E3B; --text:#E7ECF3; --text-dim:#A3ADC0; --text-faint:#69738A;
+    --accent:#3FC9BD; --accent-ink:#06201D; --accent-soft:rgba(63,201,189,.13); --accent-on:#06201D;
+    --critical:#E8654A; --critical-soft:rgba(232,101,74,.14);
+    --high:#E2A052; --high-soft:rgba(226,160,82,.14);
+    --medium:#D8BE55; --medium-soft:rgba(216,190,85,.13);
+    --low:#72A8CD; --low-soft:rgba(114,168,205,.14);
+    --ok:#5CBB88; --ok-soft:rgba(92,187,136,.14);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 32px -14px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0A0D13; --surface:#11151D; --surface-2:#171D27; --surface-3:#1F2733;
+  --border:#262E3B; --text:#E7ECF3; --text-dim:#A3ADC0; --text-faint:#69738A;
+  --accent:#3FC9BD; --accent-ink:#06201D; --accent-soft:rgba(63,201,189,.13); --accent-on:#06201D;
+  --critical:#E8654A; --critical-soft:rgba(232,101,74,.14);
+  --high:#E2A052; --high-soft:rgba(226,160,82,.14);
+  --medium:#D8BE55; --medium-soft:rgba(216,190,85,.13);
+  --low:#72A8CD; --low-soft:rgba(114,168,205,.14);
+  --ok:#5CBB88; --ok-soft:rgba(92,187,136,.14);
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 32px -14px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface-2:#E9EDF3; --surface-3:#DCE2EA;
+  --border:#D6DCE5; --text:#171B22; --text-dim:#4B5568; --text-faint:#7C8798;
+  --accent:#1B8F86; --accent-ink:#0E4B46; --accent-soft:#DDF1EE; --accent-on:#FFFFFF;
+  --critical:#C43A22; --critical-soft:#FBEAE6;
+  --high:#B9781C; --high-soft:#FBF0DE;
+  --medium:#96801A; --medium-soft:#F8F3D8;
+  --low:#3E6E96; --low-soft:#E6EEF4;
+  --ok:#2F8F5B; --ok-soft:#E3F4EA;
+  --shadow:0 1px 2px rgba(23,27,34,.04), 0 8px 24px -12px rgba(23,27,34,.18);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:'Public Sans',system-ui,sans-serif;
+  font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+@media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important;} }
+h1,h2,h3{font-family:'Archivo',sans-serif; text-wrap:balance; margin:0;}
+button{font-family:inherit; cursor:pointer;}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
+
+.app{max-width:1440px; margin:0 auto; display:flex; flex-direction:column; min-height:100vh; border-left:1px solid var(--border); border-right:1px solid var(--border); background:var(--bg);}
+
+.govbar{display:flex; align-items:center; gap:20px; padding:12px 20px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:20;}
+.brand{display:flex; align-items:center; gap:10px; margin-right:4px;}
+.brand-mark{width:26px; height:26px; border-radius:7px; flex:none; background:linear-gradient(155deg, var(--accent), var(--accent-ink)); display:flex; align-items:center; justify-content:center;}
+.brand-mark svg{width:14px; height:14px;}
+.brand-text h1{font-size:15px; font-weight:800; letter-spacing:-.01em;}
+.brand-text span{display:block; font-size:11px; color:var(--text-faint); margin-top:1px;}
+.govbar-divider{width:1px; align-self:stretch; background:var(--border); margin:2px 0;}
+.live-dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--ok); margin-right:5px; box-shadow:0 0 0 3px var(--ok-soft);}
+
+.profile-switch{display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:2px; gap:2px; flex:none;}
+.profile-switch button{border:none; background:transparent; color:var(--text-dim); font-size:12.5px; font-weight:600; padding:6px 12px; border-radius:999px; transition:background .15s ease, color .15s ease;}
+.profile-switch button.active{background:var(--accent); color:var(--accent-on);}
+
+.mode-badge{display:flex; align-items:center; gap:6px; flex:none; font-size:11.5px; font-weight:600; color:var(--ok); background:var(--ok-soft); border-radius:999px; padding:6px 11px 6px 9px;}
+.mode-badge svg{width:12px; height:12px;}
+
+.modules{display:flex; gap:6px; flex-wrap:wrap; flex:1 1 auto;}
+.module-pill{font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:500; padding:5px 9px; border-radius:6px; border:1px solid transparent; color:var(--text-dim); background:var(--surface-2); display:flex; align-items:center; gap:5px;}
+.module-pill.on{background:var(--accent-soft); color:var(--accent-ink); font-weight:600;}
+@media (prefers-color-scheme:dark){.module-pill.on{color:var(--accent);}}
+:root[data-theme="dark"] .module-pill.on{color:var(--accent);}
+.module-pill.off{opacity:.5;}
+.module-pill svg{width:10px; height:10px;}
+
+.audit-btn{display:flex; align-items:center; gap:7px; flex:none; background:var(--surface-2); border:1px solid var(--border); color:var(--text); font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:8px;}
+.audit-btn:hover{background:var(--surface-3);}
+.audit-btn svg{width:14px; height:14px;}
+.audit-count{background:var(--accent); color:var(--accent-on); font-size:10.5px; font-weight:700; border-radius:999px; min-width:17px; height:17px; display:flex; align-items:center; justify-content:center; padding:0 4px; font-family:'IBM Plex Mono',monospace;}
+
+.body{display:flex; flex:1; min-height:0;}
+.chat{width:360px; flex:none; display:flex; flex-direction:column; border-right:1px solid var(--border); background:var(--surface); min-height:0;}
+.chat-head{padding:16px 18px 10px;}
+.chat-head .eyebrow{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint);}
+.chat-head p{margin:6px 0 0; font-size:12.5px; color:var(--text-dim); line-height:1.5;}
+.chat-log{flex:1; overflow-y:auto; padding:6px 18px 12px; display:flex; flex-direction:column; gap:12px;}
+.msg{display:flex; gap:9px; max-width:100%; animation:msgIn .25s ease;}
+@keyframes msgIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+.msg-avatar{width:24px; height:24px; border-radius:7px; flex:none; margin-top:1px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700;}
+.msg.user .msg-avatar{background:var(--surface-3); color:var(--text-dim);}
+.msg.bot .msg-avatar{background:var(--accent); color:var(--accent-on);}
+.msg-bubble{background:var(--surface-2); border-radius:var(--radius-m); padding:9px 12px; font-size:13px; color:var(--text); line-height:1.5;}
+.msg.bot .msg-bubble{background:var(--accent-soft); color:var(--text);}
+.msg-bubble .cite{display:inline-flex; align-items:center; gap:4px; margin-top:6px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:500; color:var(--accent-ink); background:var(--surface); border:1px solid var(--border); border-radius:5px; padding:2px 6px;}
+@media (prefers-color-scheme:dark){.msg-bubble .cite{color:var(--accent);}}
+:root[data-theme="dark"] .msg-bubble .cite{color:var(--accent);}
+
+.chips{display:flex; flex-wrap:wrap; gap:6px; padding:2px 18px 14px;}
+.chip{font-size:12px; font-weight:500; color:var(--text-dim); background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:6px 11px; transition:background .15s ease, border-color .15s ease, color .15s ease;}
+.chip:hover{background:var(--accent-soft); border-color:var(--accent); color:var(--accent-ink);}
+@media (prefers-color-scheme:dark){.chip:hover{color:var(--accent);}}
+:root[data-theme="dark"] .chip:hover{color:var(--accent);}
+
+.chat-input{display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--border);}
+.chat-input input{flex:1; background:var(--surface-2); border:1px solid var(--border); border-radius:9px; padding:9px 12px; font-size:13px; color:var(--text); font-family:inherit;}
+.chat-input input::placeholder{color:var(--text-faint);}
+.chat-input button{width:36px; height:36px; flex:none; border-radius:9px; border:none; background:var(--accent); color:var(--accent-on); display:flex; align-items:center; justify-content:center;}
+.chat-input button svg{width:15px; height:15px;}
+.chat-input button:disabled{opacity:.5; cursor:default;}
+
+.workbench{flex:1; min-width:0; padding:20px 24px 32px; overflow-y:auto;}
+.wb-head{display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:4px; flex-wrap:wrap;}
+.wb-head h2{font-size:19px; font-weight:800; letter-spacing:-.01em;}
+.wb-head .wb-sub{font-size:12.5px; color:var(--text-faint);}
+.wb-scope{font-size:12px; color:var(--text-dim); margin:2px 0 16px;}
+.wb-scope b{color:var(--text); font-weight:600;}
+
+.table-wrap{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-l); overflow:hidden; box-shadow:var(--shadow);}
+.table-scroll{overflow-x:auto;}
+table{width:100%; border-collapse:collapse; min-width:760px;}
+thead th{text-align:left; font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint); padding:11px 14px; border-bottom:1px solid var(--border); background:var(--surface-2); white-space:nowrap;}
+th.num, td.num{text-align:right;}
+tbody tr.asset-row{border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s ease;}
+tbody tr.asset-row:hover{background:var(--surface-2);}
+tbody tr.asset-row.open{background:var(--surface-2);}
+tbody tr:last-child{border-bottom:none;}
+td{padding:12px 14px; vertical-align:middle;}
+.asset-name{font-weight:600; font-size:13px;}
+.asset-meta{display:block; font-size:11.5px; color:var(--text-faint); margin-top:2px;}
+.score{font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:15px;}
+.score-bar{width:64px; height:4px; border-radius:99px; background:var(--surface-3); margin-top:5px; overflow:hidden;}
+.score-bar span{display:block; height:100%; border-radius:99px;}
+.sev{display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px; text-transform:uppercase; letter-spacing:.03em;}
+.sev::before{content:""; width:6px; height:6px; border-radius:50%; background:currentColor;}
+.sev.critical{background:var(--critical-soft); color:var(--critical);}
+.sev.high{background:var(--high-soft); color:var(--high);}
+.sev.medium{background:var(--medium-soft); color:var(--medium);}
+.sev.low{background:var(--low-soft); color:var(--low);}
+.tagrow{display:flex; gap:4px; flex-wrap:wrap; max-width:210px;}
+.tag{font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:500; padding:3px 6px; border-radius:5px; background:var(--surface-2); color:var(--text-dim); border:1px solid var(--border);}
+.tag.locked{opacity:.45; text-decoration:line-through;}
+.chev{width:14px; height:14px; color:var(--text-faint); transition:transform .18s ease; flex:none;}
+tr.open .chev{transform:rotate(90deg); color:var(--accent);}
+.drawer-row td{padding:0; border-bottom:1px solid var(--border);}
+.drawer-inner{max-height:0; overflow:hidden; transition:max-height .28s ease; background:var(--bg);}
+tr.open + .drawer-row .drawer-inner{max-height:520px;}
+.evidence{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; padding:16px 18px 20px;}
+.ev-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-m); padding:11px 12px; border-left:3px solid var(--card-color, var(--accent));}
+.ev-card .ev-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
+.ev-card .ev-mod{font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:700; letter-spacing:.02em; color:var(--card-color, var(--accent));}
+.ev-card .ev-sev{font-size:9.5px; font-weight:700; text-transform:uppercase; color:var(--text-faint);}
+.ev-card p{margin:0; font-size:12px; color:var(--text-dim); line-height:1.45;}
+.ev-card p b{color:var(--text); font-weight:600;}
+.ev-restricted{display:flex; align-items:center; gap:8px; padding:11px 12px; border-radius:var(--radius-m); background:var(--surface-2); border:1px dashed var(--border); color:var(--text-faint); font-size:11.5px;}
+.ev-restricted svg{width:13px; height:13px; flex:none;}
+.ev-loading{padding:16px 18px; font-size:12px; color:var(--text-faint);}
+
+.scrim{position:fixed; inset:0; background:rgba(10,13,19,.35); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:30;}
+.scrim.show{opacity:1; pointer-events:auto;}
+.audit-drawer{position:fixed; top:0; right:0; height:100%; width:380px; max-width:92vw; background:var(--surface); border-left:1px solid var(--border); transform:translateX(100%); transition:transform .25s ease; z-index:31; display:flex; flex-direction:column; box-shadow:var(--shadow);}
+.audit-drawer.open{transform:translateX(0);}
+.audit-head{padding:16px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;}
+.audit-head h3{font-size:14.5px; font-weight:800;}
+.audit-head span{display:block; font-size:11px; color:var(--text-faint); margin-top:2px; font-weight:400; font-family:'Public Sans';}
+.audit-close{width:26px; height:26px; border:none; background:var(--surface-2); border-radius:7px; display:flex; align-items:center; justify-content:center; color:var(--text-dim);}
+.audit-close svg{width:13px; height:13px;}
+.audit-list{flex:1; overflow-y:auto; padding:10px 14px;}
+.audit-entry{font-family:'IBM Plex Mono',monospace; font-size:10.8px; line-height:1.6; padding:9px 10px; border-radius:7px; background:var(--surface-2); margin-bottom:7px; word-break:break-word;}
+.audit-entry .k{color:var(--text-faint);}
+.audit-entry .v{color:var(--text);}
+.audit-entry .v.acc{color:var(--accent-ink); font-weight:600;}
+.audit-entry .v.denied{color:var(--critical); font-weight:600;}
+@media (prefers-color-scheme:dark){.audit-entry .v.acc{color:var(--accent);}}
+:root[data-theme="dark"] .audit-entry .v.acc{color:var(--accent);}
+.audit-foot{padding:12px 18px; border-top:1px solid var(--border); font-size:11px; color:var(--text-faint);}
+
+@media (max-width:920px){
+  .body{flex-direction:column;}
+  .chat{width:100%; border-right:none; border-bottom:1px solid var(--border); max-height:340px;}
+  .govbar{flex-wrap:wrap; row-gap:10px;}
+  .modules{order:5; width:100%;}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="govbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="var(--accent-on)" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1><span class="live-dot" title="Connected to local backend"></span>Risk Copilot</h1>
+        <span>qualys-cli-mcp · live backend demo</span>
+      </div>
+    </div>
+
+    <div class="govbar-divider"></div>
+
+    <div class="profile-switch" role="group" aria-label="Profile">
+      <button type="button" data-profile-btn="analyst">Analyst</button>
+      <button type="button" data-profile-btn="manager">Manager · self-service</button>
+    </div>
+
+    <div class="mode-badge" id="modeBadge" title="QUALYS_MCP_DENY_WRITE enforced server-side">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8"/></svg>
+      <span id="modeLabel">…</span>
+    </div>
+
+    <div class="modules" id="moduleRow" aria-label="Allowed modules"></div>
+
+    <button type="button" class="audit-btn" id="auditToggle">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h9l4 4v12H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 11h6M9 14.5h6M9 18h3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Audit log
+      <span class="audit-count" id="auditCount">0</span>
+    </button>
+  </header>
+
+  <div class="body">
+    <aside class="chat">
+      <div class="chat-head">
+        <div class="eyebrow">Conversation</div>
+        <p>Every message here is routed to a real API call on the local backend — check the audit log to see it land.</p>
+      </div>
+
+      <div class="chat-log" id="chatLog">
+        <div class="msg bot">
+          <div class="msg-avatar">RC</div>
+          <div class="msg-bubble">Connected to the backend. Ask me to rank assets, explain a finding, or check for coverage gaps.</div>
+        </div>
+      </div>
+
+      <div class="chips" id="chipRow">
+        <button class="chip" data-prompt="Show top risk assets org-wide">Show top risk assets org-wide</button>
+        <button class="chip" data-prompt="Why is prod-checkout-web-01 risky?">Why is prod-checkout-web-01 risky?</button>
+        <button class="chip" data-prompt="Any assets missing agent coverage?">Any assets missing agent coverage?</button>
+        <button class="chip" data-prompt="What patches are already scheduled?">What patches are already scheduled?</button>
+      </div>
+
+      <form class="chat-input" id="chatForm">
+        <input type="text" id="chatInput" placeholder="Ask the copilot…" autocomplete="off" />
+        <button type="submit" id="chatSend" aria-label="Send">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12l16-7-6 16-3-6-7-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        </button>
+      </form>
+    </aside>
+
+    <main class="workbench">
+      <div class="wb-head">
+        <h2>Risk Workbench</h2>
+        <span class="wb-sub">Ranked by CSAM TruRisk · GET /api/csam/risk-ranking</span>
+      </div>
+      <p class="wb-scope" id="wbScope">Loading…</p>
+
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:26px"></th>
+                <th>Asset</th>
+                <th class="num">Risk</th>
+                <th>Top finding</th>
+                <th>Coverage</th>
+              </tr>
+            </thead>
+            <tbody id="assetBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="audit-drawer" id="auditDrawer" aria-label="Audit log">
+    <div class="audit-head">
+      <div>
+        <h3>Audit log</h3>
+        <span>GET /api/audit · backed by mcp-audit.jsonl on disk</span>
+      </div>
+      <button class="audit-close" id="auditClose" aria-label="Close audit log">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="audit-list" id="auditList"></div>
+    <div class="audit-foot">Every tool call — allowed or denied — is appended here by the server as it happens.</div>
+  </aside>
+
+</div>
+
+<script>
+const SEV_COLOR = {critical:'var(--critical)', high:'var(--high)', medium:'var(--medium)', low:'var(--low)'};
+let state = { profile:null, allowedModules:[], openRow:null, auditOpen:false, assets:[] };
+
+function iconCheck(){return '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';}
+function iconLock(){return '<svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>';}
+
+async function api(path, opts){
+  const res = await fetch(path, opts);
+  if(!res.ok && res.status !== 403) throw new Error(`${path} -> ${res.status}`);
+  return { status: res.status, body: await res.json() };
+}
+
+async function loadSession(){
+  const { body } = await api('/api/session');
+  state.profile = body.profile;
+  state.allowedModules = body.allowedModules;
+  document.querySelectorAll('[data-profile-btn]').forEach(b=>{
+    b.classList.toggle('active', b.getAttribute('data-profile-btn') === state.profile);
+  });
+  document.getElementById('modeLabel').textContent = body.mode === 'read-only' ? 'Read-only' : 'Read-write';
+  renderModules(body.allModules);
+}
+
+function renderModules(allModules){
+  const row = document.getElementById('moduleRow');
+  row.innerHTML = allModules.map(code=>{
+    const on = state.allowedModules.includes(code);
+    return `<span class="module-pill ${on?'on':'off'}">${on?iconCheck():iconLock()}${code}</span>`;
+  }).join('');
+}
+
+async function loadAssets(){
+  const { status, body } = await api('/api/csam/risk-ranking');
+  if(status === 403){ document.getElementById('wbScope').textContent = 'CSAM is outside the current allowlist.'; document.getElementById('assetBody').innerHTML=''; return; }
+  state.assets = body.assets;
+  document.getElementById('wbScope').innerHTML = `Showing <b>${body.assets.length} of ${body.assets.length}</b> assets · <b>${state.allowedModules.join(', ')}</b> in scope for this profile.`;
+  renderAssetRows();
+}
+
+function renderAssetRows(){
+  const tbody = document.getElementById('assetBody');
+  tbody.innerHTML = state.assets.map(a=>{
+    const isOpen = state.openRow === a.id;
+    const tags = a.modules.map(m=>`<span class="tag ${a.lockedModules.includes(m)?'locked':''}">${m}</span>`).join('');
+    const barColor = SEV_COLOR[a.sev];
+    return `
+      <tr class="asset-row ${isOpen?'open':''}" data-id="${a.id}" tabindex="0">
+        <td><svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+        <td><span class="asset-name mono">${a.name}</span><span class="asset-meta">${a.meta}</span></td>
+        <td class="num"><span class="score" style="color:${barColor}">${a.score}</span><div class="score-bar"><span style="width:${a.score}%; background:${barColor}"></span></div></td>
+        <td><span class="sev ${a.sev}">${a.sev}</span><div class="asset-meta" style="max-width:260px">${a.top}</div></td>
+        <td><div class="tagrow">${tags}</div></td>
+      </tr>
+      <tr class="drawer-row"><td colspan="5"><div class="drawer-inner" id="drawer-${a.id}">${isOpen?'<div class="ev-loading">Loading evidence…</div>':''}</div></td></tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('tr.asset-row').forEach(row=>{
+    row.addEventListener('click', ()=>toggleRow(row.getAttribute('data-id')));
+    row.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); row.click(); } });
+  });
+
+  if(state.openRow) loadEvidence(state.openRow);
+}
+
+async function toggleRow(id){
+  state.openRow = state.openRow === id ? null : id;
+  renderAssetRows();
+  if(state.openRow) await loadEvidence(state.openRow);
+  refreshAudit();
+}
+
+async function loadEvidence(id){
+  const { body } = await api(`/api/assets/${id}/evidence`);
+  const el = document.getElementById(`drawer-${id}`);
+  if(!el) return;
+  const cards = body.evidence.map(e=>{
+    const color = e.sev ? SEV_COLOR[e.sev] : 'var(--ok)';
+    return `<div class="ev-card" style="--card-color:${color}">
+      <div class="ev-head"><span class="ev-mod">${e.mod}</span>${e.sev?`<span class="ev-sev" style="color:${color}">${e.sev}</span>`:''}</div>
+      <p>${e.text}</p>
+    </div>`;
+  }).join('');
+  const restricted = body.restrictedModules.length
+    ? `<div class="ev-restricted">${iconLock()}${body.restrictedModules.length} module${body.restrictedModules.length>1?'s':''} hidden under the ${state.profile} allowlist (${body.restrictedModules.join(', ')})</div>`
+    : '';
+  el.innerHTML = `<div class="evidence">${cards}${restricted}</div>`;
+}
+
+function addMsg(text, who, cite){
+  const log = document.getElementById('chatLog');
+  const div = document.createElement('div');
+  div.className = `msg ${who}`;
+  div.innerHTML = `<div class="msg-avatar">${who==='bot'?'RC':'ME'}</div><div class="msg-bubble">${text}${cite?`<span class="cite">${cite}</span>`:''}</div>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat(message){
+  addMsg(message, 'user');
+  const sendBtn = document.getElementById('chatSend');
+  sendBtn.disabled = true;
+  try{
+    const { body } = await api('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message}) });
+    addMsg(body.reply, 'bot', body.citation);
+    if(body.focusAsset){ state.openRow = body.focusAsset; renderAssetRows(); await loadEvidence(body.focusAsset); }
+    await loadAssets();
+  } finally {
+    sendBtn.disabled = false;
+    refreshAudit();
+  }
+}
+
+document.getElementById('chipRow').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  sendChat(chip.getAttribute('data-prompt'));
+});
+
+document.getElementById('chatForm').addEventListener('submit', (e)=>{
+  e.preventDefault();
+  const input = document.getElementById('chatInput');
+  const val = input.value.trim();
+  if(!val) return;
+  input.value = '';
+  sendChat(val);
+});
+
+document.querySelectorAll('[data-profile-btn]').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const profile = btn.getAttribute('data-profile-btn');
+    await api('/api/session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({profile}) });
+    state.openRow = null;
+    await loadSession();
+    await loadAssets();
+    refreshAudit();
+  });
+});
+
+function auditLine(e){
+  const vcls = e.result === 'denied' ? 'v denied' : 'v acc';
+  return `<div class="audit-entry">
+    <span class="k">ts</span> <span class="v">"${e.ts}"</span><br/>
+    <span class="k">tool</span> <span class="${vcls}">"${e.tool}"</span> <span class="k">module</span> <span class="v">"${e.module}"</span><br/>
+    <span class="k">actor</span> <span class="v">"${e.actor}"</span> <span class="k">result</span> <span class="v">"${e.result}"</span>
+  </div>`;
+}
+
+async function refreshAudit(){
+  const { body } = await api('/api/audit?limit=50');
+  document.getElementById('auditCount').textContent = body.entries.length;
+  document.getElementById('auditList').innerHTML = body.entries.map(auditLine).join('');
+}
+
+const drawer = document.getElementById('auditDrawer');
+const scrim = document.getElementById('scrim');
+function setAudit(open){ state.auditOpen = open; drawer.classList.toggle('open', open); scrim.classList.toggle('show', open); if(open) refreshAudit(); }
+document.getElementById('auditToggle').addEventListener('click', ()=>setAudit(true));
+document.getElementById('auditClose').addEventListener('click', ()=>setAudit(false));
+scrim.addEventListener('click', ()=>setAudit(false));
+
+(async function init(){
+  await loadSession();
+  await loadAssets();
+  await refreshAudit();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "checkout-web",
+    "name": "prod-checkout-web-01",
+    "meta": "Internet-facing web/host · owner: payments-eng",
+    "score": 96,
+    "sev": "critical",
+    "top": "Log4Shell (CVE-2021-44228) unpatched, exploited in the wild",
+    "modules": ["VM", "WAS", "PC", "CA", "PM"],
+    "evidence": [
+      { "mod": "VM", "sev": "critical", "tool": "vm.detections", "text": "<b>CVE-2021-44228</b> · CVSS 10.0. KB confirms active exploitation. Detected on 2 open ports." },
+      { "mod": "WAS", "sev": "high", "tool": "was.findings", "text": "Reflected SQL injection on <b>/checkout/apply-promo</b>, severity 5, first seen 6 days ago." },
+      { "mod": "PC", "sev": "medium", "tool": "pc.posture", "text": "Fails <b>CIS 5.2.9</b> — SSH root login is not disabled on this host." },
+      { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "Agent healthy · last check-in <b>2h ago</b>." },
+      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Job <b>Q3-log4j-remediation</b> targets this CVE but has not run yet — recommend expediting." }
+    ]
+  },
+  {
+    "id": "rds-eu1",
+    "name": "aws-rds-prod-eu1",
+    "meta": "Cloud-managed database · eu-west-1",
+    "score": 91,
+    "sev": "critical",
+    "top": "Security group allows public ingress on the DB port",
+    "modules": ["TC", "PC", "CA"],
+    "evidence": [
+      { "mod": "TC", "sev": "critical", "tool": "tc.cdr", "text": "CDR flags security group <b>sg-04a1</b> as publicly accessible on port 5432." },
+      { "mod": "PC", "sev": "high", "tool": "pc.posture", "text": "Fails encryption-at-rest control for managed database instances." },
+      { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "<b>No Cloud Agent</b> on this asset class — coverage gap, score may be understated." }
+    ]
+  },
+  {
+    "id": "k8s-checkout",
+    "name": "k8s-checkout-node-07",
+    "meta": "Container host · cluster: checkout-prod",
+    "score": 88,
+    "sev": "high",
+    "top": "Base image carries the xz backdoor CVE",
+    "modules": ["CS", "VM", "CA", "PM"],
+    "evidence": [
+      { "mod": "CS", "sev": "critical", "tool": "cs.image_scan", "text": "Image <b>node:14-alpine</b> contains <b>CVE-2024-3094</b> (xz backdoor)." },
+      { "mod": "VM", "sev": "high", "tool": "vm.detections", "text": "Host kernel exposed to <b>CVE-2023-4863</b> (libwebp heap overflow)." },
+      { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "Agent healthy · reporting normally." },
+      { "mod": "PM", "sev": null, "tool": "pm.jobs", "text": "Patch <b>kernel-5.15.0-105</b> available, no job scheduled — recommend creating one." }
+    ]
+  },
+  {
+    "id": "vpn-gw",
+    "name": "corp-vpn-gw-02",
+    "meta": "Edge VPN gateway · internet-facing",
+    "score": 79,
+    "sev": "high",
+    "top": "Known-exploited SSL VPN CVE, no monitoring agent",
+    "modules": ["VM", "PC", "CA"],
+    "evidence": [
+      { "mod": "VM", "sev": "high", "tool": "vm.detections", "text": "<b>CVE-2018-13379</b> path-traversal on SSL VPN portal, KB marks as actively exploited." },
+      { "mod": "PC", "sev": "medium", "tool": "pc.posture", "text": "Firmware is 3 versions behind the compliant baseline." },
+      { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "<b>No Cloud Agent</b> — blind spot on an internet-facing device." }
+    ]
+  },
+  {
+    "id": "staging-api",
+    "name": "staging-api-internal-03",
+    "meta": "Internal-only API host",
+    "score": 54,
+    "sev": "low",
+    "top": "Medium-severity findings only, no external exposure",
+    "modules": ["VM", "CA"],
+    "evidence": [
+      { "mod": "VM", "sev": "medium", "tool": "vm.detections", "text": "3 medium-severity CVEs, none with known exploitation." },
+      { "mod": "CA", "sev": null, "tool": "ca.inventory", "text": "Agent healthy · internal network segment only." }
+    ]
+  }
+]
