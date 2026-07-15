@@ -13,14 +13,18 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_FILE = path.join(ROOT, 'data', 'assets.json');
 
 const PORT = parseInt(process.env.PORT || '5050', 10);
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
 const QUALYS_PROFILE_DEFAULT = process.env.QUALYS_PROFILE || 'analyst';
+const QUALYS_MCP_ALLOW_PROFILE_SWITCH = process.env.QUALYS_MCP_ALLOW_PROFILE_SWITCH === '1';
+const QUALYS_MCP_ENABLE_GENERIC_CLI = process.env.QUALYS_MCP_ENABLE_GENERIC_CLI === '1';
+const QUALYS_MCP_EXPOSE_AUDIT = process.env.QUALYS_MCP_EXPOSE_AUDIT === '1';
 const QUALYS_MCP_DENY_WRITE = process.env.QUALYS_MCP_DENY_WRITE !== '0'; // default: read-only ON
 const QUALYS_MCP_AUDIT_LOG = process.env.QUALYS_MCP_AUDIT_LOG
   || path.join(ROOT, 'logs', 'mcp-audit.jsonl');
@@ -45,14 +49,23 @@ const session = {
 
 // ---- audit log --------------------------------------------------------------
 fs.mkdirSync(path.dirname(QUALYS_MCP_AUDIT_LOG), { recursive: true });
+let auditHead = '';
+
+function redact(value) {
+  return String(value || '').replace(/(password|token|secret|api[_-]?key)\s*[:=]\s*[^\s,]+/gi, '$1=[REDACTED]');
+}
 
 function audit(entry) {
   const record = {
     ts: new Date().toISOString(),
     actor: `${session.profile}.session`,
     mode: QUALYS_MCP_DENY_WRITE ? 'read-only' : 'read-write',
-    ...entry
+    ...entry,
+    detail: redact(entry.detail),
+    previousHash: auditHead
   };
+  record.hash = createHash('sha256').update(JSON.stringify(record)).digest('hex');
+  auditHead = record.hash;
   fs.appendFileSync(QUALYS_MCP_AUDIT_LOG, JSON.stringify(record) + '\n', 'utf8');
   return record;
 }
@@ -195,12 +208,17 @@ const CLI_HELP = [
 ].join('\n');
 
 // ---- HTTP plumbing ------------------------------------------------------------
-function send(res, status, body, headers) {
+function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' ? body : JSON.stringify(body);
   const buf = Buffer.from(payload.slice(0, QUALYS_MCP_MAX_RESPONSE), 'utf8');
   res.writeHead(status, {
     'Content-Type': typeof body === 'string' ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8',
     'Content-Length': buf.length,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; frame-ancestors 'none'",
     ...headers
   });
   res.end(buf);
@@ -208,13 +226,24 @@ function send(res, status, body, headers) {
 
 function sendJson(res, status, obj) { send(res, status, obj); }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (chunk) => { data += chunk; if (data.length > 1e6) req.destroy(); });
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) { reject(new Error('request body too large')); req.destroy(); return; }
+      data += chunk;
+    });
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
+}
+
+async function readJsonBody(req) {
+  const raw = await readBody(req);
+  try { return JSON.parse(raw || '{}'); }
+  catch { const error = new Error('invalid JSON body'); error.statusCode = 400; throw error; }
 }
 
 const MIME = {
@@ -252,7 +281,8 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/session' && req.method === 'POST') {
-    const body = JSON.parse((await readBody(req)) || '{}');
+    if (!QUALYS_MCP_ALLOW_PROFILE_SWITCH) return sendJson(res, 403, { error: 'profile switching is disabled; set QUALYS_MCP_ALLOW_PROFILE_SWITCH=1 only in a trusted local demo.' });
+    const body = await readJsonBody(req);
     if (!PROFILE_ALLOW[body.profile]) return sendJson(res, 400, { error: 'unknown profile' });
     session.profile = body.profile;
     audit({ tool: 'session.set_profile', module: 'SESSION', result: 'ok', detail: session.profile });
@@ -322,7 +352,7 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/chat' && req.method === 'POST') {
-    const body = JSON.parse((await readBody(req)) || '{}');
+    const body = await readJsonBody(req);
     const message = (body.message || '').toString().slice(0, 2000);
     if (!message.trim()) return sendJson(res, 400, { error: 'message required' });
     const result = routeChat(message);
@@ -335,12 +365,14 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/qualys-cli/help' && req.method === 'GET') {
+    if (!QUALYS_MCP_ENABLE_GENERIC_CLI) return sendJson(res, 403, { error: 'generic CLI passthrough is disabled by default.' });
     audit({ tool: 'qualys_cli_help', module: 'GENERIC', result: 'ok' });
     return send(res, 200, CLI_HELP);
   }
 
   if (url.pathname === '/api/qualys-cli' && req.method === 'POST') {
-    const body = JSON.parse((await readBody(req)) || '{}');
+    if (!QUALYS_MCP_ENABLE_GENERIC_CLI) return sendJson(res, 403, { error: 'generic CLI passthrough is disabled by default.' });
+    const body = await readJsonBody(req);
     const command = (body.command || '').toString().slice(0, 500);
     if (!command.trim()) return sendJson(res, 400, { error: 'command required' });
     const result = runQualysCli(command);
@@ -349,7 +381,9 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/audit' && req.method === 'GET') {
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 500);
+    if (!QUALYS_MCP_EXPOSE_AUDIT) return sendJson(res, 403, { error: 'audit-log retrieval is disabled by default.' });
+    const requested = Number.parseInt(url.searchParams.get('limit') || '50', 10);
+    const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 500) : 50;
     return sendJson(res, 200, { entries: readAudit(limit) });
   }
 
@@ -357,19 +391,19 @@ async function handleApi(req, res, url) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/api/')) {
     handleApi(req, res, url).catch((err) => {
       console.error(err);
-      sendJson(res, 500, { error: 'internal error' });
+      sendJson(res, err.statusCode || 500, { error: err.statusCode ? err.message : 'internal error' });
     });
     return;
   }
   serveStatic(req, res, url.pathname);
 });
 
-server.listen(PORT, () => {
-  console.log(`[risk-copilot] listening on http://localhost:${PORT}`);
+server.listen(PORT, BIND_HOST, () => {
+  console.log(`[risk-copilot] listening on http://${BIND_HOST}:${PORT}`);
   console.log(`[risk-copilot] profile=${session.profile} deny_write=${QUALYS_MCP_DENY_WRITE} audit_log=${QUALYS_MCP_AUDIT_LOG}`);
 });
 
