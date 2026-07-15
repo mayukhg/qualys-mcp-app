@@ -35,6 +35,23 @@ test('security-sensitive endpoints are disabled by default', async () => {
   assert.equal(session.status, 403);
 });
 
+test('structured filters, provenance, views, reports, and dry-run integrations work', async () => {
+  const ranking = await fetch(base + '/api/csam/risk-ranking?severity=critical');
+  assert.equal(ranking.status, 200);
+  const rankingBody = await ranking.json();
+  assert.equal(rankingBody.source.mode, 'mock');
+  assert.ok(rankingBody.assets.every((asset) => asset.sev === 'critical'));
+  assert.ok(rankingBody.assets[0].risk.confidence > 0);
+  const view = await fetch(base + '/api/views', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Critical', filters: { severity: 'critical' } }) });
+  assert.equal(view.status, 201);
+  const report = await fetch(base + '/api/reports?format=csv&severity=critical');
+  assert.equal(report.status, 200);
+  assert.match(await report.text(), /id,name,severity/);
+  const notify = await fetch(base + '/api/integrations/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'ticket', message: 'review critical risks' }) });
+  assert.equal(notify.status, 202);
+  assert.equal((await notify.json()).dryRun, true);
+});
+
 test('API rejects malformed JSON and returns security headers', async () => {
   const response = await fetch(base + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' });
   assert.equal(response.status, 400);
