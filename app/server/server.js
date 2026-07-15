@@ -14,6 +14,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createHash, randomUUID } = require('crypto');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -25,6 +26,11 @@ const QUALYS_PROFILE_DEFAULT = process.env.QUALYS_PROFILE || 'analyst';
 const QUALYS_MCP_ALLOW_PROFILE_SWITCH = process.env.QUALYS_MCP_ALLOW_PROFILE_SWITCH === '1';
 const QUALYS_MCP_ENABLE_GENERIC_CLI = process.env.QUALYS_MCP_ENABLE_GENERIC_CLI === '1';
 const QUALYS_MCP_EXPOSE_AUDIT = process.env.QUALYS_MCP_EXPOSE_AUDIT === '1';
+const QUALYS_MCP_LIVE = process.env.QUALYS_MCP_LIVE === '1';
+const QUALYS_CLI_PATH = process.env.QUALYS_CLI_PATH || 'qualys-cli';
+const QUALYS_CLI_TIMEOUT = Number.parseInt(process.env.QUALYS_CLI_TIMEOUT || '30000', 10);
+const QUALYS_TENANT = process.env.QUALYS_TENANT || 'mock-tenant';
+const views = new Map();
 const QUALYS_MCP_DENY_WRITE = process.env.QUALYS_MCP_DENY_WRITE !== '0'; // default: read-only ON
 const QUALYS_MCP_AUDIT_LOG = process.env.QUALYS_MCP_AUDIT_LOG
   || path.join(ROOT, 'logs', 'mcp-audit.jsonl');
@@ -80,8 +86,63 @@ function readAudit(limit) {
 }
 
 // ---- mock data ---------------------------------------------------------------
-function loadAssets() {
+function loadMockAssets() {
   return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+}
+
+// Optional live adapter. It expects the installed qualys-cli to return JSON for this
+// stable command; failures fall back to mock data only when explicitly allowed.
+function loadAssets() {
+  if (!QUALYS_MCP_LIVE) return loadMockAssets();
+  try {
+    const raw = execFileSync(QUALYS_CLI_PATH, ['csam', 'risk-ranking', '--format', 'json'], { encoding: 'utf8', timeout: QUALYS_CLI_TIMEOUT });
+    const parsed = JSON.parse(raw);
+    const assets = Array.isArray(parsed) ? parsed : (parsed.assets || parsed.data || []);
+    if (!Array.isArray(assets)) throw new Error('live adapter returned no assets array');
+    return assets.map(normalizeLiveAsset);
+  } catch (err) {
+    if (process.env.QUALYS_MCP_LIVE_FALLBACK !== '1') throw new Error(`live Qualys adapter failed: ${err.message}`);
+    return loadMockAssets();
+  }
+}
+
+function normalizeLiveAsset(asset) {
+  return {
+    id: String(asset.id || asset.assetId || asset.name),
+    name: asset.name || asset.hostname || String(asset.id),
+    meta: asset.meta || asset.description || '',
+    score: Number(asset.score || asset.truRiskScore || 0),
+    sev: asset.sev || asset.severity || 'unknown',
+    top: asset.top || asset.topFinding || 'No summary supplied by Qualys',
+    modules: asset.modules || ['CSAM'],
+    evidence: asset.evidence || []
+  };
+}
+
+function assetMatches(asset, query) {
+  const text = `${asset.name} ${asset.meta} ${asset.top} ${asset.modules.join(' ')}`.toLowerCase();
+  if (query.q && !text.includes(query.q.toLowerCase())) return false;
+  if (query.tag && !text.includes(query.tag.toLowerCase())) return false;
+  if (query.owner && !text.includes(query.owner.toLowerCase())) return false;
+  if (query.environment && !text.includes(query.environment.toLowerCase())) return false;
+  if (query.severity && asset.sev.toLowerCase() !== query.severity.toLowerCase()) return false;
+  if (query.module && !asset.modules.includes(query.module.toUpperCase())) return false;
+  return true;
+}
+
+function filteredAssets(query = {}) {
+  return loadAssets().filter((asset) => assetMatches(asset, query));
+}
+
+function explainRisk(asset) {
+  const evidence = Array.isArray(asset.evidence) ? asset.evidence : [];
+  const factors = [];
+  if (asset.score >= 90) factors.push({ factor: 'high_tru_risk', impact: 'high', reason: 'TruRisk score is at least 90' });
+  if (/internet|public|exposed/i.test(asset.meta)) factors.push({ factor: 'external_exposure', impact: 'high', reason: 'Asset metadata indicates internet/public exposure' });
+  if (evidence.some((e) => /actively exploited|known.exploit|kev/i.test(e.text || ''))) factors.push({ factor: 'known_exploitation', impact: 'high', reason: 'Evidence indicates known or active exploitation' });
+  if (evidence.some((e) => e.mod === 'CA' && /no cloud agent|coverage gap/i.test(e.text || ''))) factors.push({ factor: 'coverage_gap', impact: 'medium', reason: 'Cloud Agent coverage is missing' });
+  const confidence = Math.max(0.35, Math.min(0.99, 0.45 + (evidence.length * 0.1) - (factors.some((f) => f.factor === 'coverage_gap') ? 0.15 : 0)));
+  return { factors, confidence: Number(confidence.toFixed(2)), missingData: factors.some((f) => f.factor === 'coverage_gap') ? ['Cloud Agent coverage'] : [] };
 }
 
 function allowedModules() {
@@ -106,7 +167,13 @@ function seedProposals() {
           assetId: asset.id,
           assetName: asset.name,
           action: e.proposal.action,
-          status: 'pending'
+          status: 'pending',
+          impact: e.proposal.impact || 'Changes a Qualys remediation job state',
+          rollback: e.proposal.rollback || 'Revert the job in Qualys and re-run verification',
+          expiresAt: e.proposal.expiresAt || new Date(Date.now() + 86400000).toISOString(),
+          approver: null,
+          justification: null,
+          verification: null
         });
       }
     });
@@ -114,8 +181,12 @@ function seedProposals() {
 }
 seedProposals();
 
+function sourceInfo() {
+  return { mode: QUALYS_MCP_LIVE ? 'live' : 'mock', tenant: QUALYS_TENANT, queriedAt: new Date().toISOString(), adapter: QUALYS_MCP_LIVE ? 'qualys-cli' : 'assets.json' };
+}
+
 function proposalView(p) {
-  return { id: p.id, action: p.action, status: p.status };
+  return { id: p.id, action: p.action, status: p.status, impact: p.impact, rollback: p.rollback, expiresAt: p.expiresAt, approver: p.approver, justification: p.justification, verification: p.verification };
 }
 
 // ---- simple keyword router standing in for LLM tool-selection ---------------
@@ -270,6 +341,64 @@ function serveStatic(req, res, urlPath) {
 async function handleApi(req, res, url) {
   await new Promise((r) => setTimeout(r, SIMULATED_LATENCY_MS)); // stand-in for real Qualys API round-trip
 
+  if (url.pathname === '/api/health' && req.method === 'GET') {
+    return sendJson(res, 200, { ok: true, source: sourceInfo(), genericCliEnabled: QUALYS_MCP_ENABLE_GENERIC_CLI });
+  }
+
+  if (url.pathname === '/api/assets' && req.method === 'GET') {
+    const query = Object.fromEntries(url.searchParams.entries());
+    return sendJson(res, 200, { assets: filteredAssets(query).map((a) => ({ ...a, risk: explainRisk(a), source: sourceInfo() })), filters: query, source: sourceInfo() });
+  }
+
+  if (url.pathname === '/api/views' && req.method === 'GET') {
+    return sendJson(res, 200, { views: [...views.values()] });
+  }
+
+  if (url.pathname === '/api/views' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    if (!body.name || typeof body.filters !== 'object') return sendJson(res, 400, { error: 'name and filters are required' });
+    const view = { id: randomUUID(), name: String(body.name).slice(0, 100), filters: body.filters, createdAt: new Date().toISOString() };
+    views.set(view.id, view);
+    return sendJson(res, 201, view);
+  }
+
+  if (url.pathname.startsWith('/api/views/') && req.method === 'DELETE') {
+    const id = url.pathname.split('/').pop();
+    if (!views.delete(id)) return sendJson(res, 404, { error: 'unknown view' });
+    return sendJson(res, 204, '');
+  }
+
+  if (url.pathname === '/api/integrations/notify' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const event = { type: body.type || 'risk-report', assetIds: body.assetIds || [], message: String(body.message || '').slice(0, 1000), createdAt: new Date().toISOString(), source: sourceInfo() };
+    const targets = [];
+    for (const [name, env] of [['slack', 'QUALYS_SLACK_WEBHOOK_URL'], ['teams', 'QUALYS_TEAMS_WEBHOOK_URL'], ['ticket', 'QUALYS_TICKET_WEBHOOK_URL']]) {
+      if (process.env[env]) targets.push({ name, url: process.env[env] });
+    }
+    if (!targets.length) return sendJson(res, 202, { delivered: false, dryRun: true, event, message: 'No integration webhook configured' });
+    const results = [];
+    for (const target of targets) {
+      try {
+        const response = await fetch(target.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(event) });
+        results.push({ target: target.name, status: response.status, ok: response.ok });
+      } catch (err) { results.push({ target: target.name, ok: false, error: err.message }); }
+    }
+    audit({ tool: 'integration.notify', module: 'WORKFLOW', result: results.every((r) => r.ok) ? 'ok' : 'partial', detail: targets.map((t) => t.name).join(',') });
+    return sendJson(res, 200, { delivered: true, results, event });
+  }
+
+  if (url.pathname === '/api/reports' && req.method === 'GET') {
+    const query = Object.fromEntries(url.searchParams.entries());
+    const assets = filteredAssets(query).map((a) => ({ ...a, risk: explainRisk(a), source: sourceInfo() }));
+    const format = (query.format || 'json').toLowerCase();
+    if (format === 'csv') {
+      const rows = ['id,name,severity,score,confidence,missingData,source'];
+      assets.forEach((a) => rows.push([a.id, a.name, a.sev, a.score, a.risk.confidence, a.risk.missingData.join('|'), sourceInfo().mode].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')));
+      return send(res, 200, rows.join('\\n'), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="qualys-risk-report.csv"' });
+    }
+    return sendJson(res, 200, { reportType: 'risk-summary', generatedAt: new Date().toISOString(), filters: query, assets, source: sourceInfo() });
+  }
+
   if (url.pathname === '/api/session' && req.method === 'GET') {
     return sendJson(res, 200, {
       profile: session.profile,
@@ -295,13 +424,16 @@ async function handleApi(req, res, url) {
       return sendJson(res, 403, { error: 'CSAM is not in the current module allowlist' });
     }
     const allow = allowedModules();
-    const assets = loadAssets().map((a) => ({
+    const query = Object.fromEntries(url.searchParams.entries());
+    const assets = filteredAssets(query).map((a) => ({
       id: a.id, name: a.name, meta: a.meta, score: a.score, sev: a.sev, top: a.top,
       modules: a.modules,
-      lockedModules: a.modules.filter((m) => !allow.includes(m))
+      lockedModules: a.modules.filter((m) => !allow.includes(m)),
+      risk: explainRisk(a),
+      source: sourceInfo()
     }));
     audit({ tool: 'csam.risk_ranking', module: 'CSAM', result: 'ok', detail: `${assets.length} assets` });
-    return sendJson(res, 200, { assets });
+    return sendJson(res, 200, { assets, filters: query, source: sourceInfo() });
   }
 
   const evidenceMatch = url.pathname.match(/^\/api\/assets\/([\w-]+)\/evidence$/);
@@ -323,6 +455,7 @@ async function handleApi(req, res, url) {
   const remediationMatch = url.pathname.match(/^\/api\/remediation\/([\w-]+)\/(approve|reject)$/);
   if (remediationMatch && req.method === 'POST') {
     const [, propId, decision] = remediationMatch;
+    const body = req.method === 'POST' ? await readJsonBody(req) : {};
     const prop = proposals.get(propId);
     if (!prop) return sendJson(res, 404, { error: 'unknown proposal' });
 
@@ -344,11 +477,19 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { proposal: proposalView(prop) });
     }
 
-    // approve -> a human signed off, so this one pre-vetted action runs despite DENY_WRITE
-    audit({ tool: 'remediation.approve', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
-    prop.status = 'executed';
-    audit({ tool: 'remediation.execute', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
-    return sendJson(res, 200, { proposal: proposalView(prop) });
+    // Approvals are explicit, expiring, and attributable even in this local demo.
+    if (decision === 'approve') {
+      if (!body.approver || !body.justification) return sendJson(res, 400, { error: 'approver and justification are required' });
+      if (Date.parse(prop.expiresAt) < Date.now()) return sendJson(res, 409, { error: 'proposal has expired' });
+      prop.approver = String(body.approver).slice(0, 120);
+      prop.justification = String(body.justification).slice(0, 500);
+      audit({ tool: 'remediation.approve', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
+      prop.status = 'executed';
+      prop.verification = { status: 'pending', requestedAt: new Date().toISOString(), query: `verify remediation for ${prop.assetName}` };
+      audit({ tool: 'remediation.execute', module: 'PM', result: 'ok', detail: `${prop.assetName}: ${prop.action}` });
+      return sendJson(res, 200, { proposal: proposalView(prop) });
+    }
+    return sendJson(res, 400, { error: 'unsupported remediation decision' });
   }
 
   if (url.pathname === '/api/chat' && req.method === 'POST') {
