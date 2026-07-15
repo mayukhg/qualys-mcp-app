@@ -217,3 +217,16 @@ The working demo is intentionally local-first. Its sensitive exploration endpoin
 | `QUALYS_MCP_EXPOSE_AUDIT` | `0` | Disables audit-log retrieval over HTTP |
 
 Responses include basic browser security headers and API bodies are size-limited and JSON-validated. Audit entries redact common secret assignments and form a hash chain to make accidental modification visible. These controls are demo guardrails—not substitutes for production authentication, centralized immutable audit storage, per-user authorization, or a real Qualys adapter.
+
+
+### Implemented workflow features on `codex-changes`
+
+- **Live adapter seam:** set `QUALYS_MCP_LIVE=1` to query `qualys-cli csam risk-ranking --format json`; the server normalizes the response and reports tenant, adapter, mode, and query timestamp. Set `QUALYS_MCP_LIVE_FALLBACK=1` only when mock fallback is acceptable.
+- **Analyst workflows:** `/api/assets` and `/api/csam/risk-ranking` accept `q`, `tag`, `owner`, `environment`, `severity`, and `module` filters. `/api/views` provides in-process saved views.
+- **Explainable priority:** every ranked asset now includes risk factors, confidence, and missing-data warnings.
+- **Operational remediation metadata:** approvals require an approver and justification, expire, record impact/rollback, and create a pending verification record.
+- **Workflow integrations:** `POST /api/integrations/notify` sends a normalized event to configured Slack, Teams, or ticket webhooks; with no webhook configured it is an explicit dry run.
+- **Reporting:** `GET /api/reports?format=json` returns a reproducible source-stamped report; `format=csv` returns an export.
+- **Provenance:** API responses include `source.mode`, `source.tenant`, `source.adapter`, and `source.queriedAt`.
+
+These are intentionally demo-safe implementations. Production deployment still needs authenticated users, persistent views/approvals, centralized audit storage, webhook authentication, and real post-remediation verification.
