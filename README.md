@@ -203,3 +203,17 @@ See [`Agentic-AI-Use-Cases.md`](Agentic-AI-Use-Cases.md) for the reasoning behin
 ## Sources
 
 - [qualys-cli-mcp on PyPI](https://pypi.org/project/qualys-cli-mcp/)
+
+
+### Production-hardening defaults
+
+The working demo is intentionally local-first. Its sensitive exploration endpoints are **disabled by default**:
+
+| Variable | Default | Effect |
+|---|---:|---|
+| `BIND_HOST` | `127.0.0.1` | Keeps the demo off the network unless explicitly changed |
+| `QUALYS_MCP_ALLOW_PROFILE_SWITCH` | `0` | Disables client-side persona switching |
+| `QUALYS_MCP_ENABLE_GENERIC_CLI` | `0` | Disables the generic CLI passthrough |
+| `QUALYS_MCP_EXPOSE_AUDIT` | `0` | Disables audit-log retrieval over HTTP |
+
+Responses include basic browser security headers and API bodies are size-limited and JSON-validated. Audit entries redact common secret assignments and form a hash chain to make accidental modification visible. These controls are demo guardrails—not substitutes for production authentication, centralized immutable audit storage, per-user authorization, or a real Qualys adapter.
