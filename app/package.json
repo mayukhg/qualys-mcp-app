@@ -1,0 +1,13 @@
+{
+  "name": "qualys-risk-copilot-demo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Governed Qualys risk-copilot demo",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
